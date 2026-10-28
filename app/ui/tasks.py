@@ -47,11 +47,14 @@ class _Task(QRunnable):
 
     def run(self):
         try:
-            res = self.fn(self.signals.progress.emit, *self.args) if self.wp else self.fn(*self.args)
-        except Exception as e:  # noqa: BLE001
-            self.signals.failed.emit(e)
-        else:
-            self.signals.done.emit(res)
+            try:
+                res = self.fn(self.signals.progress.emit, *self.args) if self.wp else self.fn(*self.args)
+            except Exception as e:  # noqa: BLE001
+                self.signals.failed.emit(e)
+            else:
+                self.signals.done.emit(res)
+        except RuntimeError:     # the app was closed while the task was still running
+            pass
 
 
 def run_task(fn, *args, on_done=None, on_fail=None, on_progress=None, with_progress=False):

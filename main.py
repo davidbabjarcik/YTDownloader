@@ -8,6 +8,7 @@ from app import APP_NAME, paths
 from app.settings import Settings
 from app.ui.main_window import MainWindow
 from app.ui.theme import apply_theme
+from app.ui.widgets import NoWheelChange
 
 
 def main() -> int:
@@ -18,6 +19,8 @@ def main() -> int:
     app.setStyle("Fusion")
     settings = Settings.load()
     apply_theme(app, settings.theme)
+    no_wheel = NoWheelChange(app)
+    app.installEventFilter(no_wheel)
 
     def hook(exc_type, exc, tb):
         logging.error("Unhandled exception", exc_info=(exc_type, exc, tb))

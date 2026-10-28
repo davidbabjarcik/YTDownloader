@@ -8,6 +8,7 @@ Usage:  pip install -r requirements.txt pyinstaller
         python build.py
 """
 from __future__ import annotations
+import os
 import platform
 import shutil
 import subprocess
@@ -33,7 +34,8 @@ def run(*cmd: str) -> None:
 
 def pyinstaller(*extra: str) -> None:
     icon = ROOT / "assets" / ("icon.ico" if SYSTEM == "Windows" else "icon.icns")
-    args = ["--noconfirm", "--clean", "--windowed", "--name", APP_ID]
+    args = ["--noconfirm", "--clean", "--windowed", "--name", APP_ID,
+            "--add-data", f"app{os.sep}web{os.pathsep}app/web"]       # phone web page
     if icon.exists():
         args += ["--icon", str(icon)]
     run(sys.executable, "-m", "PyInstaller", *args, *extra, "main.py")

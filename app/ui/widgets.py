@@ -4,9 +4,23 @@ import sys
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QUrl, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from PySide6.QtWidgets import QAbstractScrollArea, QAbstractSpinBox, QComboBox
+
+
+class NoWheelChange(QObject):
+    """The mouse wheel never changes combo boxes / number fields; it scrolls the page instead."""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, (QComboBox, QAbstractSpinBox)):
+            w = obj.parentWidget()
+            while w is not None and not isinstance(w, QAbstractScrollArea):
+                w = w.parentWidget()
+            if w is not None:
+                QCoreApplication.sendEvent(w.viewport(), event)
+            return True
+        return False
 
 
 class ThumbLoader(QObject):

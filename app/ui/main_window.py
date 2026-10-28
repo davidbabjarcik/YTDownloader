@@ -1,8 +1,10 @@
 from __future__ import annotations
 import dataclasses
+import logging
+import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import QObject, Qt, QSize, Signal, Slot
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -10,12 +12,13 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, 
                                QProgressBar, QPushButton, QRadioButton, QScrollArea,
                                QStackedWidget, QVBoxLayout, QWidget)
 
-from .. import APP_NAME, deps, naming, paths, sources, tagger, ytdlp
+from .. import APP_NAME, deps, naming, paths, sources, tagger, webserver, ytdlp
 from ..archive import Archive
 from ..errors import AppError, classify
 from ..jobs import QueueManager
 from ..models import JobSpec, JobState, fmt_duration
 from .dialogs import DepsDialog, NamingDialog
+from .phone_page import PhonePage
 from .queue_page import QueuePage
 from .settings_page import SettingsPage
 from .tasks import run_task
@@ -28,6 +31,45 @@ BEST_ONLY = {"m4a": [("Highest available (original AAC, no re-encode)", "best")]
              "flac": [("Lossless container (source is lossy)", "best")]}
 DEFAULT_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
 CUSTOM = "Custom template…"
+
+
+class _WebBridge(QObject):
+    """Calls from the web server thread, delivered to the GUI thread (queued signals)."""
+    enqueue = Signal(object, str, str, str)
+    cancel = Signal(str)
+    retry = Signal(str)
+    clear = Signal()
+
+
+class _WebController(webserver.Controller):
+    def __init__(self, win: "MainWindow"):
+        self.win = win
+
+    def analyze(self, urls):
+        return ytdlp.analyze_many(urls, self.win.tools, self.win.settings)
+
+    def is_downloaded(self, key, kind):
+        return self.win.archive.has(key, kind)
+
+    def enqueue(self, entries, kind, fmt, quality):
+        self.win.web_bridge.enqueue.emit(list(entries), kind, fmt, quality)
+
+    def jobs(self):
+        return list(self.win.queue.jobs)
+
+    def cancel(self, job_id):
+        self.win.web_bridge.cancel.emit(job_id)
+
+    def retry(self, job_id):
+        self.win.web_bridge.retry.emit(job_id)
+
+    def clear(self):
+        self.win.web_bridge.clear.emit()
+
+    def defaults(self):
+        s = self.win.settings
+        return {"audio_format": s.audio_format, "audio_quality": s.audio_quality,
+                "video_quality": s.video_quality}
 
 
 class MainWindow(QMainWindow):
@@ -63,6 +105,23 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._wrap(self.queue_page))
         self.settings_page = SettingsPage(settings, self.tools, self.archive)
         self.pages.addWidget(self.settings_page)
+        self.phone_page = PhonePage(settings)
+        self.pages.addWidget(self._wrap(self.phone_page))
+
+        # phone / web access
+        self.web_bridge = _WebBridge(self)
+        self.web_bridge.enqueue.connect(self._web_enqueue)
+        self.web_bridge.cancel.connect(self._web_cancel)
+        self.web_bridge.retry.connect(self._web_retry)
+        self.web_bridge.clear.connect(self.queue.clear_finished)
+        if not settings.web_token:
+            settings.web_token = webserver.new_token()
+        self.web = webserver.WebServer(_WebController(self), settings.web_token)
+        self.phone_page.toggled.connect(self._web_toggle)
+        self.phone_page.port_changed.connect(self._web_port)
+        self.phone_page.new_code.connect(self._web_new_code)
+        if settings.web_enabled:
+            self._web_apply()
 
         self.queue.job_added.connect(self.queue_page.add)
         self.queue.job_added.connect(lambda j: self._update_nav())
@@ -100,7 +159,7 @@ class MainWindow(QMainWindow):
         l.addSpacing(14)
         self.nav_group = QButtonGroup(self)
         self.nav_btns = []
-        for i, name in enumerate(("Download", "Queue", "Settings")):
+        for i, name in enumerate(("Download", "Queue", "Settings", "Phone")):
             b = QPushButton(name)
             b.setObjectName("nav")
             b.setCheckable(True)
@@ -619,6 +678,76 @@ class MainWindow(QMainWindow):
         self.dir_edit.setText(s.download_dir)
         self._refresh_formats()
         self.nav_btns[0].click()
+
+    # -------------------------------------------------------- phone / web
+    def _save_settings(self):
+        try:
+            self.settings.save()
+        except OSError as e:
+            QMessageBox.warning(self, APP_NAME, f"Could not save settings:\n{e}")
+
+    def _web_apply(self):
+        """Start or stop the server to match the settings, then update the Phone page."""
+        error = ""
+        self.web.token = self.settings.web_token
+        if self.settings.web_enabled:
+            if not self.web.running or self.web.port != self.settings.web_port:
+                try:
+                    # YTDL_WEB_HOST=127.0.0.1 keeps it on this computer only (tests)
+                    self.web.start(self.settings.web_port, os.environ.get("YTDL_WEB_HOST", "0.0.0.0"))
+                except AppError as e:
+                    error = f"{e.message}. {e.detail}"
+        else:
+            self.web.stop()
+        self.phone_page.show_state(self.web.urls(), error)
+
+    def _web_toggle(self, on: bool):
+        self.settings.web_enabled = on
+        self._save_settings()
+        self._web_apply()
+
+    def _web_port(self, port: int):
+        if port != self.settings.web_port:
+            self.settings.web_port = port
+            self._save_settings()
+            self._web_apply()
+
+    def _web_new_code(self):
+        self.settings.web_token = webserver.new_token()
+        self._save_settings()
+        self._web_apply()
+
+    @Slot(object, str, str, str)
+    def _web_enqueue(self, entries, kind, fmt, quality):
+        s = self.settings
+        out_dir = s.download_dir
+        try:
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logging.exception("output folder not usable")
+        specs = [JobSpec(e, kind, fmt, quality, s.naming_template, out_dir, s.sort_template) for e in entries]
+        self._last_out_dir = out_dir
+        self.queue.enqueue(specs, dataclasses.replace(s), self.tools)
+        self.status_lbl.setText(f"Queued {len(specs)} item(s) from the phone…")
+
+    def _job(self, job_id: str):
+        return next((j for j in self.queue.jobs if j.id == job_id), None)
+
+    @Slot(str)
+    def _web_cancel(self, job_id: str):
+        j = self._job(job_id)
+        if j:
+            self.queue.cancel(j)
+
+    @Slot(str)
+    def _web_retry(self, job_id: str):
+        j = self._job(job_id)
+        if j:
+            self.queue.retry(j, self.tools)
+
+    def closeEvent(self, e):
+        self.web.stop()
+        super().closeEvent(e)
 
     def check_dependencies(self, force: bool = False):
         self.tools = deps.check(self.settings)

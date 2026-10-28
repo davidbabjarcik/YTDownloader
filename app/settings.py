@@ -33,6 +33,10 @@ class Settings:
     # Spotify (optional own API keys -> whole playlists, album names, track numbers)
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
+    # Phone / web access (server inside the app, same Wi-Fi only)
+    web_enabled: bool = False
+    web_port: int = 8765
+    web_token: str = ""
     # Appearance
     theme: str = "dark"                # dark | light | system
     clipboard_watch: bool = True

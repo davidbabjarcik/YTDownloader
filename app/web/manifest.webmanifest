@@ -1,0 +1,13 @@
+{
+  "name": "YT Downloader",
+  "short_name": "Downloader",
+  "description": "Send YouTube, SoundCloud and Spotify links to the YT Downloader on your PC.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#15161c",
+  "theme_color": "#15161c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

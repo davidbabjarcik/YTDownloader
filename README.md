@@ -40,6 +40,7 @@ Testy (potrebujú `ffmpeg` v PATH; GUI test beží bez okna):
 python tests/test_naming.py
 python tests/test_pipeline.py
 python tests/test_sources.py
+python tests/test_web.py
 QT_QPA_PLATFORM=offscreen python tests/test_gui.py      # Windows: set QT_QPA_PLATFORM=offscreen
 ```
 
@@ -59,6 +60,20 @@ Vlastný build: Windows `build.bat`, macOS/Linux `./build.sh` (oba volajú `buil
 Premenné `{title} {artist} {album} {year} {genre} {track} {id}`, napr. `{artist} - {title} ({year})` alebo pre albumy `{track}. {title}`.
 Nepovolené znaky `\ / : * ? " < > |` sa nahradia/odstránia (aj na Macu/Linuxe, aby sa súbory dali skopírovať na Windows / USB),
 prázdne časti (chýbajúci rok/interpret) sa zahodia.
+
+## Z mobilu (Phone)
+Appka na počítači môže fungovať aj ako webová stránka pre mobil v **tej istej Wi-Fi**:
+1. V appke otvor **Phone** a zapni *Allow phones in this network to use the app*.
+2. Mobilom naskenuj **QR kód** (alebo otvor zobrazený odkaz `http://<ip-pc>:8765/?t=<kód>`).
+3. Na mobile vlož odkaz → **Analyze** → vyber skladby → **Download on PC**. Sťahuje počítač do svojho priečinka
+   (nastavenia z Settings: priečinok, názvy, triedenie). Hotové súbory sa dajú stiahnuť aj do mobilu cez **Save to phone**.
+4. V prehliadači mobilu *Pridať na plochu* (iPhone: Zdieľať → Pridať na plochu) → ikona ako appka.
+
+- Odkaz obsahuje prístupový kód, bez neho nikto v sieti appku nepoužije. **New access code** zneplatní staré odkazy.
+- Pri prvom zapnutí sa Windows/macOS môže opýtať na **firewall**: povoľ prístup v súkromnej sieti.
+- Počítač musí byť zapnutý a appka spustená. Mimo domácej Wi-Fi to nefunguje (zámerne, kvôli bezpečnosti).
+- Prečo nie GitHub Pages: prehliadač sám nevie sťahovať z YouTube/SoundCloudu/Spotify (blokujú to a nebeží v ňom
+  yt-dlp ani FFmpeg), takže sťahovať musí vždy program na počítači.
 
 ## Spotify
 Zvuk zo Spotify je chránený (DRM), takže sa zo Spotify nesťahuje. Appka zo Spotify prečíta zoznam skladieb, názvy,
@@ -96,6 +111,7 @@ app/
   thumbnails.py tagger.py            cover (JPEG, orez na štvorec), ID3/MP4/FLAC tagy (mutagen)
   pipeline.py                        jeden job: (nájdi) → stiahni → konvertuj → tagy → premenuj (bez Qt)
   jobs.py                            fronta, paralelizmus, cancel/retry, zápis do histórie (Qt)
+  webserver.py web/                  prístup z mobilu: malý HTTP server + mobilná stránka
   ui/                                hlavné okno, queue, settings, dialógy, téma
 .github/workflows/build.yml          testy + buildy pre 3 systémy + release
 ```

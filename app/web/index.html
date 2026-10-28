@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="YT Downloader">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>YT Downloader</title>
+<style>
+:root {
+  --bg: #15161c; --card: #1e2029; --line: #2c2f3b; --text: #eceef4; --muted: #9aa0b2;
+  --accent: #7c5cff; --ok: #3ddc97; --err: #ff5c6c;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f5f8; --card: #ffffff; --line: #dfe2ea; --text: #16181f; --muted: #5d6375; color-scheme: light; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+main { max-width: 640px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 4px 0 14px; }
+h2 { font-size: 17px; margin: 22px 0 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+textarea { min-height: 88px; resize: vertical; }
+select { min-height: 46px; appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 20px, calc(100% - 14px) 20px; background-size: 6px 6px; background-repeat: no-repeat; }
+button { font: inherit; font-weight: 600; min-height: 46px; padding: 0 18px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > .grow { flex: 1 1 140px; }
+.muted { color: var(--muted); font-size: 14px; }
+.err { color: var(--err); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; flex: 1; background: transparent; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.grid label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+@media (max-width: 380px) { .grid { grid-template-columns: 1fr; } }
+.items { list-style: none; margin: 12px 0 0; padding: 0; }
+.sticky { position: sticky; bottom: 0; margin: 0 -14px -14px; padding: 10px 14px max(14px, env(safe-area-inset-bottom));
+  background: var(--card); border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; }
+.item { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.item input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+.item img, .ph { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex: none; background: var(--line); }
+.item .t { min-width: 0; flex: 1; }
+.t b, .t span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t b { font-weight: 600; font-size: 15px; }
+.done { color: var(--ok); }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 4px; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.job.Completed .bar i { background: var(--ok); }
+.job.Error .bar i { background: var(--err); }
+.job .acts { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.job .acts button, .job .acts a { min-height: 40px; font-size: 14px; }
+a.btn { display: inline-flex; align-items: center; padding: 0 14px; border-radius: 10px; background: var(--ok);
+  color: #06281a; font-weight: 600; text-decoration: none; }
+.hide { display: none !important; }
+.lock { text-align: center; padding: 28px 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>YT Downloader</h1>
+
+  <section id="lock" class="card lock hide">
+    <p><b>Access code needed</b></p>
+    <p class="muted">Scan the QR code in the PC app (Phone page), or open the link shown there.</p>
+  </section>
+
+  <section id="app" class="hide">
+    <div class="card">
+      <textarea id="urls" placeholder="Paste a YouTube, SoundCloud or Spotify link (song or playlist)" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="paste" type="button">Paste</button>
+        <button id="analyze" class="primary grow" type="button">Analyze</button>
+      </div>
+      <p id="msg" class="muted hide"></p>
+    </div>
+
+    <div id="result" class="card hide">
+      <div class="row">
+        <div class="grow"><b id="rtitle"></b><div id="rinfo" class="muted"></div></div>
+        <button id="toggle" type="button">All</button>
+      </div>
+      <p id="notes" class="muted hide"></p>
+      <div class="seg" style="margin-top:12px" role="group" aria-label="Type">
+        <button type="button" data-kind="audio" aria-pressed="true">Audio</button>
+        <button type="button" data-kind="video" aria-pressed="false">Video</button>
+      </div>
+      <div class="grid">
+        <div><label for="fmt">Format</label><select id="fmt"></select></div>
+        <div><label for="quality">Quality</label><select id="quality"></select></div>
+      </div>
+      <ul id="items" class="items"></ul>
+      <div class="sticky">
+        <button id="download" class="primary" type="button" style="width:100%">Download on PC</button>
+      </div>
+    </div>
+
+    <div class="row"><h2 class="grow">Queue</h2><button id="clear" type="button">Clear finished</button></div>
+    <div id="jobs"></div>
+    <p id="empty" class="muted">Nothing here yet.</p>
+    <p class="muted" id="foot"></p>
+  </section>
+</main>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
+  const qs = new URLSearchParams(location.search);
+  let token = qs.get("t") || store.get("ytdl-token") || "";
+  if (qs.get("t")) { store.set("ytdl-token", token); history.replaceState(null, "", location.pathname); }
+
+  const AUDIO = [["mp3", "MP3"], ["m4a", "M4A (AAC)"], ["flac", "FLAC"]];
+  const QUALITY = {
+    mp3: [["320", "320 kbps (best)"], ["256", "256 kbps"], ["192", "192 kbps"]],
+    m4a: [["best", "Original AAC (best)"]], flac: [["best", "Lossless container"]],
+    mp4: [["best", "Highest available"], ["1080", "1080p"], ["720", "720p"], ["480", "480p"], ["360", "360p"]],
+  };
+  let kind = "audio", analysis = null, defaults = {};
+
+  async function api(path, body) {
+    const r = await fetch("api/" + path, {
+      method: body ? "POST" : "GET",
+      headers: { "X-Token": token, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await r.json().catch(() => ({ error: "PC app did not answer" }));
+    if (r.status === 401) { showLock(); throw new Error(data.error); }
+    if (!r.ok || data.error) throw new Error(data.error + (data.detail ? ": " + data.detail : ""));
+    return data;
+  }
+  function showLock() { $("lock").classList.remove("hide"); $("app").classList.add("hide"); }
+  function say(text, isErr) {
+    const m = $("msg"); m.textContent = text || ""; m.classList.toggle("hide", !text); m.classList.toggle("err", !!isErr);
+  }
+  function opts(sel, list, want) {
+    sel.innerHTML = "";
+    for (const [v, n] of list) { const o = document.createElement("option"); o.value = v; o.textContent = n; sel.append(o); }
+    if (want && list.some(([v]) => v === want)) sel.value = want;
+  }
+  function refreshFormats() {
+    opts($("fmt"), kind === "audio" ? AUDIO : [["mp4", "MP4"]], kind === "audio" ? defaults.audio_format : "mp4");
+    refreshQuality();
+  }
+  function refreshQuality() {
+    const f = $("fmt").value;
+    opts($("quality"), QUALITY[f] || [], f === "mp4" ? defaults.video_quality : defaults.audio_quality);
+  }
+  function dur(s) { if (!s) return ""; s = Math.round(s); const m = Math.floor(s / 60); return m + ":" + String(s % 60).padStart(2, "0"); }
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  function renderItems() {
+    const ul = $("items"); ul.innerHTML = "";
+    for (const it of analysis.items) {
+      const li = el("li", "item");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.i = it.i;
+      cb.checked = !it.done[kind]; cb.setAttribute("aria-label", it.title);
+      const label = el("label", "t");
+      label.append(el("b", "", it.title));
+      const sub = [it.uploader, dur(it.duration)].filter(Boolean).join(" • ");
+      const s = el("span", "muted", sub);
+      if (it.done[kind]) s.append(el("span", "done", " ✓ downloaded"));
+      label.append(s);
+      label.addEventListener("click", () => { cb.checked = !cb.checked; count(); });
+      cb.addEventListener("change", count);
+      let img;
+      if (it.thumb) { img = document.createElement("img"); img.src = it.thumb; img.alt = ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer"; }
+      else img = el("div", "ph");
+      li.append(cb, img, label); ul.append(li);
+    }
+    count();
+  }
+  function boxes() { return [...$("items").querySelectorAll("input")]; }
+  function count() {
+    const b = boxes(), n = b.filter((x) => x.checked).length;
+    const done = analysis.items.filter((x) => x.done[kind]).length;
+    $("rinfo").textContent = n + " of " + b.length + " selected" + (done ? " · " + done + " already downloaded" : "");
+    $("toggle").textContent = n === b.length ? "None" : "All";
+    $("download").disabled = n === 0;
+  }
+  function setKind(k) {
+    kind = k;
+    document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === k)));
+    refreshFormats();
+    if (analysis) renderItems();
+  }
+
+  async function analyze() {
+    const text = $("urls").value.trim();
+    if (!text) return say("Paste a link first.", true);
+    $("analyze").disabled = true; $("analyze").textContent = "Analyzing…"; say("");
+    try {
+      analysis = await api("analyze", { urls: text });
+      $("rtitle").textContent = analysis.title;
+      const notes = analysis.notes.concat(analysis.errors.map((e) => e.error + (e.detail ? ": " + e.detail : "")));
+      $("notes").textContent = notes.join(" "); $("notes").classList.toggle("hide", !notes.length);
+      const vb = document.querySelector('.seg button[data-kind="video"]');
+      vb.disabled = !analysis.has_youtube;
+      if (!analysis.has_youtube) setKind("audio");
+      renderItems();
+      $("result").classList.toggle("hide", !analysis.items.length);
+      if (!analysis.items.length) say(notes.join(" ") || "Nothing found.", true);
+    } catch (e) { say(e.message, true); }
+    $("analyze").disabled = false; $("analyze").textContent = "Analyze";
+  }
+
+  async function download() {
+    const items = boxes().filter((x) => x.checked).map((x) => +x.dataset.i);
+    $("download").disabled = true;
+    try {
+      const r = await api("download", { aid: analysis.aid, items, kind, fmt: $("fmt").value, quality: $("quality").value });
+      say(r.queued + " item(s) are downloading on the PC.");
+      $("result").classList.add("hide"); $("urls").value = ""; analysis = null;
+      poll();
+    } catch (e) { say(e.message, true); $("download").disabled = false; }
+  }
+
+  function renderJobs(jobs) {
+    const box = $("jobs"); box.innerHTML = "";
+    $("empty").classList.toggle("hide", jobs.length > 0);
+    for (const j of jobs.slice().reverse()) {
+      const c = el("div", "card job " + j.state);
+      c.append(el("b", "", j.title));
+      const bar = el("div", "bar"); const i = el("i"); i.style.width = j.percent + "%"; bar.append(i); c.append(bar);
+      let line = j.state;
+      if (j.state === "Error") line += " — " + j.message;
+      else if (!j.finished) line += [j.speed, j.eta && "ETA " + j.eta].filter(Boolean).map((x) => " · " + x).join("");
+      else if (j.ok) line += " · " + j.file + (j.size ? " · " + j.size : "");
+      c.append(el("div", "muted" + (j.state === "Error" ? " err" : ""), line));
+      const acts = el("div", "acts");
+      if (j.ok) {
+        const a = el("a", "btn", "Save to phone");
+        a.href = "api/file/" + j.id + "?t=" + encodeURIComponent(token); a.setAttribute("download", j.file);
+        acts.append(a);
+      }
+      if (!j.finished) { const b = el("button", "", "Cancel"); b.onclick = () => api("cancel", { id: j.id }).then(poll); acts.append(b); }
+      if (j.state === "Error" || j.state === "Cancelled") { const b = el("button", "", "Retry"); b.onclick = () => api("retry", { id: j.id }).then(poll); acts.append(b); }
+      if (acts.childNodes.length) c.append(acts);
+      box.append(c);
+    }
+  }
+
+  let timer = null;
+  async function poll() {
+    clearTimeout(timer);
+    try {
+      const s = await api("state");
+      if (!Object.keys(defaults).length) { defaults = s.defaults || {}; refreshFormats(); }
+      $("foot").textContent = "Connected to the PC app " + s.version;
+      renderJobs(s.jobs);
+      const busy = s.jobs.some((j) => !j.finished);
+      timer = setTimeout(poll, document.hidden ? 10000 : busy ? 1200 : 4000);
+    } catch (e) {
+      $("foot").textContent = "PC app not reachable: " + e.message;
+      timer = setTimeout(poll, 5000);
+    }
+  }
+
+  $("analyze").onclick = analyze;
+  $("download").onclick = download;
+  $("fmt").onchange = refreshQuality;
+  $("toggle").onclick = () => { const all = boxes().every((x) => x.checked); boxes().forEach((x) => (x.checked = !all)); count(); };
+  document.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => setKind(b.dataset.kind)));
+  $("clear").onclick = () => api("clear", {}).then(poll).catch((e) => say(e.message, true));
+  $("paste").onclick = async () => {
+    try { $("urls").value = await navigator.clipboard.readText(); } catch (e) { $("urls").focus(); say("Long-press the box and choose Paste.", false); }
+  };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+
+  if (!token) showLock();
+  else { $("app").classList.remove("hide"); refreshFormats(); poll(); }
+})();
+</script>
+</body>
+</html>
