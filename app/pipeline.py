@@ -6,7 +6,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from . import genre, naming, tagger, thumbnails, ytdlp
+from . import genre, naming, spotify, tagger, thumbnails, ytdlp
 from .errors import AppError, Cancelled, classify
 from .models import JobState, fmt_eta, fmt_size, fmt_speed
 
@@ -42,13 +42,25 @@ class Pipeline:
             self.on_progress(99.0, "", "", "")
 
     def run(self) -> Path:
-        s, spec = self.settings, self.spec
+        s, spec, entry = self.settings, self.spec, self.spec.entry
+        if spec.kind == "video" and entry.source != "youtube":
+            raise AppError("VIDEO_ONLY_YT", "Video is only available for YouTube",
+                           "Choose Audio for SoundCloud and Spotify links.")
+        info = entry.info
+        url = entry.url
+        if entry.source == "spotify":
+            self.on_state(JobState.SEARCHING)
+            spotify.enrich(entry)
+            self._check()
+            info = spotify.match(entry, self.tools, s)
+            url = info.get("webpage_url") or f"https://www.youtube.com/watch?v={info.get('id')}"
+            self._check()
         self.on_state(JobState.DOWNLOADING)
-        info = spec.entry.info
         if info is None:
-            info = ytdlp.fetch_info(spec.entry.url, self.tools, s)
+            info = ytdlp.fetch_info(url, self.tools, s)
         self._check()
-        meta = tagger.detect_meta(info, s.auto_detect_artist)
+        youtube = entry.source == "spotify" or info.get("extractor_key", "Youtube").lower().startswith("youtube")
+        meta = tagger.apply_overrides(tagger.detect_meta(info, s.auto_detect_artist), entry.meta)
         if s.write_genre_tag or "{genre}" in (spec.sort_template + spec.template):
             try:
                 meta.genre = genre.detect_genre(info, meta, s.genre_online, s.unknown_genre)
@@ -61,20 +73,24 @@ class Pipeline:
         tmp = out_dir / f".ytdl_{uuid.uuid4().hex[:8]}"
         tmp.mkdir()
         try:
-            cmd = ytdlp.build_download_cmd(self.tools, s, spec, tmp, src_abr)
+            cmd = ytdlp.build_download_cmd(self.tools, s, spec, tmp, src_abr, url)
             rc, lines = self.runner.run(cmd, self._on_line)
             self._check()
             if rc != 0:
                 raise classify("\n".join(lines[-60:]))
             ext = spec.fmt if spec.kind == "audio" else "mp4"
-            produced = self._find_output(tmp, meta.id or spec.entry.id, ext)
+            produced = self._find_output(tmp, info.get("id") or entry.id, ext)
             ext = produced.suffix.lstrip(".").lower()
 
             self.on_state(JobState.EMBEDDING)
             cover = None
             want_embed = s.embed_thumbnail and spec.kind == "audio"
             if want_embed or s.save_thumbnail_separately:
-                raw = thumbnails.fetch_cover(meta.id or spec.entry.id, info.get("thumbnail") or "")
+                if entry.cover_url:     # Spotify artwork (square, the real album cover)
+                    raw = thumbnails.fetch_cover("", entry.cover_url, youtube=False)
+                else:
+                    raw = thumbnails.fetch_cover(info.get("id") or entry.id, info.get("thumbnail") or "",
+                                                 youtube=youtube)
                 if raw:
                     try:
                         cover = thumbnails.prepare_cover(raw, s.crop_cover_square)

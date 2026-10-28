@@ -2,7 +2,7 @@
 import json, os, shutil, sys, tempfile, threading
 from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ["APPDATA"] = tempfile.mkdtemp()
+os.environ["YTDL_DATA_DIR"] = tempfile.mkdtemp()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication
@@ -31,7 +31,7 @@ subprocess.run(["ffmpeg","-y","-loglevel","error","-f","lavfi","-i","sine=d=1",o
 fmt = a[a.index("--audio-format") + 1]; dst = out.rsplit(".",1)[0] + "." + fmt
 print("[ExtractAudio] Destination: " + dst); subprocess.run(["ffmpeg","-y","-loglevel","error","-i",out,dst], check=True)
 '''
-d = Path(tempfile.mkdtemp()); fake = d / "yt-dlp"; fake.write_text(FAKE); fake.chmod(0o755)
+d = Path(tempfile.mkdtemp()); fake = d / "yt-dlp.py"; fake.write_text(FAKE); fake.chmod(0o755)
 s = Settings(download_dir=str(d / "out"), ask_naming=False, ytdlp_path=str(fake),
              ffmpeg_path=shutil.which("ffmpeg"), embed_thumbnail=False, genre_online=False)
 app = QApplication([]); apply_theme(app, "dark")
@@ -55,8 +55,15 @@ def step3():
     w.url_edit.setPlainText("https://www.youtube.com/playlist?list=PLxyz"); w._analyze()
 def step4():
     assert not w.single and w.list.count() == 2, w.list.count()
+    # history: "aaaaaaaaaaa" was downloaded in step 3 -> marked and left unchecked
+    assert "downloaded" in w.list.item(0).text(), w.list.item(0).text()
+    assert [e.id for e in w._selected()] == ["ccccccccccc"], [e.id for e in w._selected()]
+    assert "1 already downloaded" in w.list_info.text(), w.list_info.text()
+    w.rb_video.setChecked(True)                     # nothing downloaded as video yet
+    assert [e.id for e in w._selected()] == ["aaaaaaaaaaa", "ccccccccccc"]
+    w.rb_audio.setChecked(True)
     w.list.item(1).setCheckState(Qt.CheckState.Unchecked)
-    assert [e.id for e in w._selected()] == ["aaaaaaaaaaa"]
+    assert [e.id for e in w._selected()] == []
     w.w2 = None
     w.url_edit.setPlainText("not a link"); w._analyze()
     assert not w.error_box.isHidden() and "Invalid" in w.error_label.text()

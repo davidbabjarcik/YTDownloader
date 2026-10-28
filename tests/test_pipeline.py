@@ -45,7 +45,7 @@ class T(unittest.TestCase):
         self.assertEqual(Image.open(BytesIO(j)).size, (90, 90))
 
     def _run(self, kind, fmt, q, sort="", info_extra=None, **sk):
-        d = Path(tempfile.mkdtemp()); fake = d / "yt-dlp"; fake.write_text(FAKE); fake.chmod(0o755)
+        d = Path(tempfile.mkdtemp()); fake = d / "yt-dlp.py"; fake.write_text(FAKE); fake.chmod(0o755)
         ff = Path(shutil.which("ffmpeg")); tools = Tools(fake, ff, ff)
         sk.setdefault("genre_online", False)
         s = Settings(download_dir=str(d), **sk)

@@ -71,9 +71,10 @@ class QueueManager(QObject):
     jobs_removed = Signal(list)
     batch_finished = Signal(list)
 
-    def __init__(self, get_settings, parent=None):
+    def __init__(self, get_settings, parent=None, archive=None):
         super().__init__(parent)
         self.get_settings = get_settings
+        self.archive = archive
         self.jobs: list[Job] = []
         self.batch: list[Job] = []
         self._batch_done = True
@@ -167,6 +168,8 @@ class QueueManager(QObject):
         job.speed = job.eta = ""
         job.message = warn
         job.runner = None
+        if self.archive is not None:
+            self.archive.add(job.spec.entry.key, job.spec.kind, job.title, path)
         self.job_changed.emit(job)
         self._after()
 

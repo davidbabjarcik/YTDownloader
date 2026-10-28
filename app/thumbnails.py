@@ -1,4 +1,4 @@
-"""Download YouTube thumbnails and turn them into cover art."""
+"""Download thumbnails / artwork and turn them into cover art."""
 from __future__ import annotations
 import urllib.request
 from io import BytesIO
@@ -12,8 +12,8 @@ def _get(url: str, timeout: int = 15) -> bytes:
         return r.read()
 
 
-def fetch_cover(video_id: str, fallback_url: str = "") -> bytes | None:
-    urls = [f"https://i.ytimg.com/vi/{video_id}/{q}.jpg" for q in CANDIDATES]
+def fetch_cover(video_id: str, fallback_url: str = "", youtube: bool = True) -> bytes | None:
+    urls = [f"https://i.ytimg.com/vi/{video_id}/{q}.jpg" for q in CANDIDATES] if youtube else []
     if fallback_url:
         urls.append(fallback_url)
     for u in urls:

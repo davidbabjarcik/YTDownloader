@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import sys
 import subprocess
 from pathlib import Path
 
@@ -46,5 +47,7 @@ def open_folder(path) -> None:
     p = Path(path)
     if os.name == "nt" and p.is_file():
         subprocess.Popen(["explorer", "/select,", str(p)])
+    elif sys.platform == "darwin" and p.exists():
+        subprocess.Popen(["open", "-R", str(p)])      # Finder, with the file selected
     else:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(p if p.is_dir() else p.parent)))

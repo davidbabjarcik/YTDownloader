@@ -19,6 +19,7 @@ class TrackMeta:
     year: str = ""
     genre: str = ""
     id: str = ""
+    track: str = ""                    # track number, e.g. "03" (albums)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -49,7 +50,18 @@ def detect_meta(info: dict, auto_detect: bool = True) -> TrackMeta:
         genre = ", ".join(genre)
     return TrackMeta(title=title, artist=artist, album=info.get("album") or title,
                      album_artist=info.get("album_artist") or artist, year=year,
-                     genre=genre, id=info.get("id") or "")
+                     genre=genre, id=info.get("id") or "",
+                     track=f"{int(info['track_number']):02d}" if info.get("track_number") else "")
+
+
+def apply_overrides(meta: TrackMeta, known: dict | None) -> TrackMeta:
+    """Known tags (Spotify, SoundCloud set) win over the ones detected from the upload."""
+    for k, v in (known or {}).items():
+        if v and hasattr(meta, k):
+            setattr(meta, k, str(v))
+    if known and known.get("album") and not known.get("album_artist"):
+        meta.album_artist = meta.album_artist or meta.artist
+    return meta
 
 
 def write_tags(path: Path, meta: TrackMeta, cover: bytes | None, write_text: bool = True,
@@ -64,7 +76,8 @@ def write_tags(path: Path, meta: TrackMeta, cover: bytes | None, write_text: boo
 
 
 def _mp3(path, m, cover, write_text, comment=""):
-    from mutagen.id3 import (ID3, ID3NoHeaderError, TIT2, TPE1, TALB, TPE2, TDRC, TCON, APIC, COMM)
+    from mutagen.id3 import (ID3, ID3NoHeaderError, TIT2, TPE1, TALB, TPE2, TDRC, TCON, APIC, COMM,
+                             TRCK)
     try:
         tags = ID3(path)
     except ID3NoHeaderError:
@@ -78,6 +91,8 @@ def _mp3(path, m, cover, write_text, comment=""):
             tags.setall("TDRC", [TDRC(encoding=1, text=m.year)])
         if m.genre:
             tags.setall("TCON", [TCON(encoding=1, text=m.genre)])
+        if m.track:
+            tags.setall("TRCK", [TRCK(encoding=1, text=str(int(m.track)))])
         if comment:
             tags.setall("COMM", [COMM(encoding=1, lang="eng", desc="", text=comment)])
     if cover:
@@ -98,6 +113,8 @@ def _mp4(path, m, cover, write_text, comment=""):
             f["\xa9day"] = [m.year]
         if m.genre:
             f["\xa9gen"] = [m.genre]
+        if m.track:
+            f["trkn"] = [(int(m.track), 0)]
         if comment:
             f["\xa9cmt"] = [comment]
     if cover:
@@ -115,6 +132,8 @@ def _flac(path, m, cover, write_text, comment=""):
             f["date"] = [m.year]
         if m.genre:
             f["genre"] = [m.genre]
+        if m.track:
+            f["tracknumber"] = [str(int(m.track))]
         if comment:
             f["comment"] = [comment]
     if cover:

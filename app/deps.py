@@ -1,8 +1,12 @@
-"""Locate / install yt-dlp and FFmpeg."""
+"""Locate / install yt-dlp and FFmpeg (Windows, macOS, Linux)."""
 from __future__ import annotations
 import os
+import platform
 import shutil
+import stat
 import subprocess
+import sys
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -14,9 +18,47 @@ from .errors import AppError
 
 EXE = ".exe" if os.name == "nt" else ""
 CNW = 0x08000000 if os.name == "nt" else 0
-YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-FFMPEG_ZIP_URL = ("https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/"
-                  "ffmpeg-master-latest-win64-gpl.zip")
+GH = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/"
+FF_GH = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/"
+FF_MAC = "https://ffmpeg.martin-riedl.de/redirect/latest/macos/{arch}/release/{tool}.zip"
+# where GUI apps on macOS / Linux do not look by default (Finder starts apps without the shell PATH)
+EXTRA_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin", "/snap/bin",
+              str(Path.home() / ".local" / "bin"))
+
+
+def system() -> str:
+    return platform.system()          # Windows | Darwin | Linux
+
+
+def is_arm() -> bool:
+    return platform.machine().lower() in ("arm64", "aarch64", "armv8l")
+
+
+def ytdlp_asset(sysname: str | None = None, arm: bool | None = None) -> str:
+    sysname = sysname or system()
+    arm = is_arm() if arm is None else arm
+    if sysname == "Windows":
+        return "yt-dlp.exe"
+    if sysname == "Darwin":
+        return "yt-dlp_macos"           # universal binary (Intel + Apple Silicon)
+    return "yt-dlp_linux_aarch64" if arm else "yt-dlp_linux"
+
+
+def ffmpeg_urls(sysname: str | None = None, arm: bool | None = None) -> list[str]:
+    sysname = sysname or system()
+    arm = is_arm() if arm is None else arm
+    if sysname == "Windows":
+        return [FF_GH + "ffmpeg-master-latest-win64-gpl.zip"]
+    if sysname == "Darwin":
+        a = "arm64" if arm else "amd64"
+        return [FF_MAC.format(arch=a, tool=t) for t in ("ffmpeg", "ffprobe")]
+    return [FF_GH + f"ffmpeg-master-latest-{'linuxarm64' if arm else 'linux64'}-gpl.tar.xz"]
+
+
+def tool_cmd(path) -> list[str]:
+    """Command prefix for a tool. A .py file is run with Python (used by the tests)."""
+    p = str(path)
+    return [sys.executable, p] if p.endswith(".py") else [p]
 
 
 @dataclass
@@ -52,7 +94,14 @@ def find_tool(name: str, custom: str = "") -> Path | None:
         if c.is_file():
             return c
     w = shutil.which(name)
-    return Path(w) if w else None
+    if w:
+        return Path(w)
+    if os.name != "nt":
+        for d in EXTRA_DIRS:
+            c = Path(d) / name
+            if c.is_file() and os.access(c, os.X_OK):
+                return c
+    return None
 
 
 def check(settings) -> Tools:
@@ -75,8 +124,15 @@ def writable(d: Path) -> bool:
 
 
 def install_dir() -> Path:
+    if system() == "Darwin" and paths.is_frozen():
+        return paths.user_bin_dir()     # never write into the signed .app bundle
     d = paths.local_bin_dir()
     return d if writable(d) else paths.user_bin_dir()
+
+
+def _make_executable(p: Path) -> None:
+    if os.name != "nt":
+        p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def _download(url: str, dest: Path, progress=None, label: str = "") -> None:
@@ -97,37 +153,53 @@ def _download(url: str, dest: Path, progress=None, label: str = "") -> None:
         raise AppError("NETWORK", "Network error", f"Could not download {label}: {e}")
 
 
-def _need_windows():
-    if os.name != "nt":
-        raise AppError("UNSUPPORTED", "Automatic install works on Windows only",
-                       "Install yt-dlp and ffmpeg with your package manager.")
-
-
 def install_ytdlp(target: Path, progress=None) -> Path:
-    _need_windows()
     target.mkdir(parents=True, exist_ok=True)
-    tmp = target / "yt-dlp.exe.part"
-    _download(YTDLP_URL, tmp, progress, "yt-dlp")
-    dest = target / "yt-dlp.exe"
+    dest = target / ("yt-dlp" + EXE)
+    tmp = target / (dest.name + ".part")
+    _download(GH + ytdlp_asset(), tmp, progress, "yt-dlp")
     os.replace(tmp, dest)
+    _make_executable(dest)
     return dest
 
 
-def install_ffmpeg(target: Path, progress=None) -> Path:
-    _need_windows()
-    target.mkdir(parents=True, exist_ok=True)
-    zpath = target / "ffmpeg.zip.part"
-    _download(FFMPEG_ZIP_URL, zpath, progress, "FFmpeg")
-    try:
-        with zipfile.ZipFile(zpath) as z:
+def _extract(archive: Path, target: Path, wanted: set[str]) -> None:
+    """Copy ffmpeg / ffprobe (any folder inside the archive) into target."""
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as z:
             for name in z.namelist():
-                base = os.path.basename(name).lower()
-                if base in ("ffmpeg.exe", "ffprobe.exe"):
+                base = os.path.basename(name)
+                if base.lower() in wanted:
                     with z.open(name) as src, open(target / base, "wb") as out:
                         shutil.copyfileobj(src, out)
-    finally:
-        zpath.unlink(missing_ok=True)
-    return target / "ffmpeg.exe"
+                    _make_executable(target / base)
+        return
+    with tarfile.open(archive) as t:
+        for m in t.getmembers():
+            base = os.path.basename(m.name)
+            if m.isfile() and base in wanted:
+                src = t.extractfile(m)
+                with src, open(target / base, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                _make_executable(target / base)
+
+
+def install_ffmpeg(target: Path, progress=None) -> Path:
+    target.mkdir(parents=True, exist_ok=True)
+    wanted = {"ffmpeg" + EXE, "ffprobe" + EXE}
+    for i, url in enumerate(ffmpeg_urls()):
+        part = target / f"ffmpeg-{i}{'.zip' if '.zip' in url else '.tar.xz'}.part"
+        label = "FFprobe" if "ffprobe" in url else "FFmpeg"
+        _download(url, part, progress, label)
+        try:
+            _extract(part, target, wanted)
+        except (OSError, zipfile.BadZipFile, tarfile.TarError) as e:
+            raise AppError("NETWORK", "FFmpeg could not be unpacked", str(e))
+        finally:
+            part.unlink(missing_ok=True)
+    if not all((target / w).is_file() for w in wanted):
+        raise AppError("FFMPEG", "FFmpeg install incomplete", f"ffmpeg/ffprobe not found in {target}")
+    return target / ("ffmpeg" + EXE)
 
 
 def install_missing(tools: Tools, progress=None) -> Path:
@@ -143,7 +215,7 @@ def tool_version(path: Path | None) -> str:
     if not path:
         return "not found"
     try:
-        p = subprocess.run([str(path), "--version"], capture_output=True, text=True,
+        p = subprocess.run(tool_cmd(path) + ["--version"], capture_output=True, text=True,
                            timeout=60, creationflags=CNW)
         return (p.stdout or p.stderr).strip().splitlines()[0]
     except Exception as e:  # noqa: BLE001
@@ -151,6 +223,6 @@ def tool_version(path: Path | None) -> str:
 
 
 def update_ytdlp(path: Path) -> str:
-    p = subprocess.run([str(path), "-U"], capture_output=True, text=True,
+    p = subprocess.run(tool_cmd(path) + ["-U"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=180, creationflags=CNW)
     return ((p.stdout or "") + (p.stderr or "")).strip()

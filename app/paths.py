@@ -19,7 +19,13 @@ def app_dir() -> Path:
 
 
 def data_dir() -> Path:
-    base = os.environ.get("APPDATA") or str(Path.home() / ".config")
+    """Windows: %APPDATA%, macOS: ~/Library/Application Support, Linux: ~/.config (XDG)."""
+    base = os.environ.get("YTDL_DATA_DIR") or os.environ.get("APPDATA")
+    if not base:
+        if sys.platform == "darwin":
+            base = str(Path.home() / "Library" / "Application Support")
+        else:
+            base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     p = Path(base) / APP_ID
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -37,6 +43,10 @@ def user_bin_dir() -> Path:
 
 def settings_file() -> Path:
     return data_dir() / "settings.json"
+
+
+def archive_file() -> Path:
+    return data_dir() / "history.jsonl"
 
 
 def log_file() -> Path:

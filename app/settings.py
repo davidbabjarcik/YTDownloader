@@ -15,6 +15,7 @@ class Settings:
     video_quality: str = "best"        # best | 1080 | 720 | 480 | 360
     naming_template: str = "{artist} - {title}"
     ask_naming: bool = True
+    skip_downloaded: bool = True       # history: leave already downloaded items unchecked
     # Metadata
     embed_thumbnail: bool = True
     write_id3: bool = True
@@ -29,6 +30,9 @@ class Settings:
     sort_template: str = "{genre}"     # sub-folders inside the output folder; "" = none
     genre_online: bool = True          # MusicBrainz lookup when YouTube gives no genre
     unknown_genre: str = "Unsorted"
+    # Spotify (optional own API keys -> whole playlists, album names, track numbers)
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
     # Appearance
     theme: str = "dark"                # dark | light | system
     clipboard_watch: bool = True

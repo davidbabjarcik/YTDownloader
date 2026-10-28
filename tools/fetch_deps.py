@@ -1,4 +1,4 @@
-"""Download yt-dlp.exe + ffmpeg.exe + ffprobe.exe into a folder (used by build.bat).
+"""Download yt-dlp + ffmpeg + ffprobe for this OS into a folder (used by build.py on Windows).
 Usage: python tools/fetch_deps.py bin"""
 import sys
 from pathlib import Path
@@ -15,9 +15,9 @@ def progress(label, done, total):
 def main() -> int:
     target = Path(sys.argv[1] if len(sys.argv) > 1 else "bin").resolve()
     target.mkdir(parents=True, exist_ok=True)
-    if not (target / "yt-dlp.exe").exists():
+    if not (target / ("yt-dlp" + deps.EXE)).exists():
         deps.install_ytdlp(target, progress); print()
-    if not ((target / "ffmpeg.exe").exists() and (target / "ffprobe.exe").exists()):
+    if not all((target / (n + deps.EXE)).exists() for n in ("ffmpeg", "ffprobe")):
         deps.install_ffmpeg(target, progress); print()
     print("Components in", target)
     return 0

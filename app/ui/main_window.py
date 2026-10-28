@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, 
                                QProgressBar, QPushButton, QRadioButton, QScrollArea,
                                QStackedWidget, QVBoxLayout, QWidget)
 
-from .. import APP_NAME, deps, naming, tagger, ytdlp
+from .. import APP_NAME, deps, naming, paths, sources, tagger, ytdlp
+from ..archive import Archive
 from ..errors import AppError, classify
 from ..jobs import QueueManager
 from ..models import JobSpec, JobState, fmt_duration
@@ -38,8 +39,10 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.tools = deps.check(settings)
         self.thumbs = ThumbLoader(self)
-        self.queue = QueueManager(lambda: self.settings, self)
+        self.archive = Archive(paths.archive_file())
+        self.queue = QueueManager(lambda: self.settings, self, self.archive)
         self.entries: list = []
+        self.notes: list[str] = []
         self.heights = list(DEFAULT_HEIGHTS)
         self.single = False
         self._clip_urls: list[str] = []
@@ -58,7 +61,7 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._build_download_page())
         self.queue_page = QueuePage(self.thumbs)
         self.pages.addWidget(self._wrap(self.queue_page))
-        self.settings_page = SettingsPage(settings, self.tools)
+        self.settings_page = SettingsPage(settings, self.tools, self.archive)
         self.pages.addWidget(self.settings_page)
 
         self.queue.job_added.connect(self.queue_page.add)
@@ -121,7 +124,7 @@ class MainWindow(QMainWindow):
         # clipboard banner
         self.banner = QFrame(objectName="banner")
         bl = QHBoxLayout(self.banner)
-        self.banner_label = QLabel("YouTube URL detected – Analyze?")
+        self.banner_label = QLabel("Link detected – Analyze?")
         b1, b2 = QPushButton("Analyze"), QPushButton("Dismiss")
         b1.clicked.connect(self._banner_analyze)
         b2.clicked.connect(self.banner.hide)
@@ -131,9 +134,11 @@ class MainWindow(QMainWindow):
         self.banner.hide()
         lay.addWidget(self.banner)
 
-        lay.addWidget(QLabel("YouTube URL (one or more, one per line):"))
+        lay.addWidget(QLabel("YouTube, SoundCloud or Spotify link – song or playlist "
+                             "(one or more, one per line):"))
         self.url_edit = QPlainTextEdit(objectName="url")
-        self.url_edit.setPlaceholderText("https://youtube.com/…   (paste, or drag & drop a link here)")
+        self.url_edit.setPlaceholderText("https://youtube.com/…   https://soundcloud.com/…   "
+                                         "https://open.spotify.com/…\n(paste, or drag & drop a link here)")
         self.url_edit.setFixedHeight(88)
         lay.addWidget(self.url_edit)
         self.analyze_btn = QPushButton("ANALYZE")
@@ -193,6 +198,11 @@ class MainWindow(QMainWindow):
         hr.addStretch()
         hr.addWidget(self.list_info)
         ll.addLayout(hr)
+        self.list_note = QLabel()
+        self.list_note.setObjectName("muted")
+        self.list_note.setWordWrap(True)
+        self.list_note.hide()
+        ll.addWidget(self.list_note)
         self.list = QListWidget()
         self.list.setIconSize(QSize(112, 63))
         self.list.setMinimumHeight(260)
@@ -247,7 +257,7 @@ class MainWindow(QMainWindow):
         grid.addLayout(dr, 7, 1)
         grid.setColumnStretch(1, 1)
         lay.addLayout(grid)
-        self.rb_audio.toggled.connect(lambda _: self._refresh_formats())
+        self.rb_audio.toggled.connect(lambda _: (self._refresh_formats(), self._apply_history()))
         self.fmt_combo.currentIndexChanged.connect(lambda _: self._refresh_quality())
         self.name_combo.currentIndexChanged.connect(self._name_changed)
         self.sort_combo.currentIndexChanged.connect(self._sort_changed)
@@ -354,8 +364,8 @@ class MainWindow(QMainWindow):
     def _analyze(self):
         urls = ytdlp.extract_urls(self.url_edit.toPlainText())
         if not urls:
-            self._show_error(AppError("INVALID_URL", "Invalid YouTube URL",
-                                      "Paste a youtube.com or youtu.be link."))
+            self._show_error(AppError("INVALID_URL", "Invalid link",
+                                      "Paste a YouTube, SoundCloud or Spotify link."))
             return
         self.error_box.hide()
         self.banner.hide()
@@ -378,16 +388,22 @@ class MainWindow(QMainWindow):
         seen, entries = set(), []
         for r in results:
             for e in r.entries:
-                if e.id not in seen:
-                    seen.add(e.id)
+                if e.key not in seen:
+                    seen.add(e.key)
                     entries.append(e)
         if errors:
             self._show_error(errors[0])
         if not entries:
             return
         self.entries = entries
+        self.notes = [r.note for r in results if r.note]
         self.single = len(results) == 1 and not results[0].is_playlist and len(entries) == 1
         self.heights = (results[0].heights if self.single and results[0].heights else DEFAULT_HEIGHTS)
+        has_yt = any(e.source == "youtube" for e in entries)
+        if not has_yt:
+            self.rb_audio.setChecked(True)
+        self.rb_video.setEnabled(has_yt)
+        self.rb_video.setToolTip("" if has_yt else "Video is only available for YouTube links.")
         if self.single:
             self._fill_single(entries[0], results[0])
         else:
@@ -400,34 +416,63 @@ class MainWindow(QMainWindow):
         meta = tagger.detect_meta(e.info or {}, self.settings.auto_detect_artist)
         self.title_lbl.setText(f"Title: {meta.title or e.title}")
         self.artist_lbl.setText(f"Artist: {meta.artist or e.uploader or '—'}")
-        self.dur_lbl.setText(f"Duration: {fmt_duration(e.duration)}")
-        if r.audio_abr:
-            self.src_lbl.setText(
-                f"Best audio source: {r.audio_codec or '?'} ≈ {r.audio_abr:.0f} kbps. "
-                "Re-encoding to a higher MP3 bitrate cannot improve this; the best source is used "
-                "and MP3 is capped at 320 kbps.")
+        self.dur_lbl.setText(f"Duration: {fmt_duration(e.duration)}   ·   {sources.LABELS.get(e.source, '')}")
+        if e.source == "spotify":
+            text = ("Spotify audio is protected, so the audio is taken from the best matching "
+                    "YouTube upload. Title, artist, album and cover come from Spotify.")
+        elif r.audio_abr:
+            text = (f"Best audio source: {r.audio_codec or '?'} ≈ {r.audio_abr:.0f} kbps. "
+                    "Re-encoding to a higher MP3 bitrate cannot improve this; the best source is used "
+                    "and MP3 is capped at 320 kbps.")
         else:
-            self.src_lbl.setText("Best available audio source will be used (MP3 capped at 320 kbps).")
+            text = "Best available audio source will be used (MP3 capped at 320 kbps)."
+        self.src_lbl.setText(text + "".join(f"<br>{n}" for n in self.notes) + self._history_text(e))
         self.thumb_lbl.clear()
-        self.thumbs.load(f"https://i.ytimg.com/vi/{e.id}/hqdefault.jpg",
-                         lambda pm: self.thumb_lbl.setPixmap(scaled(pm, 320, 180)))
+        self.thumbs.load(e.big_thumb_url, lambda pm: self.thumb_lbl.setPixmap(scaled(pm, 320, 180)))
         self.preview.setCurrentIndex(1)
+
+    def _history_text(self, e) -> str:
+        r = self.archive.get(e.key, self._kind())
+        return f"<br><b>Already downloaded</b> ({r['date']}): {r.get('path', '')}" if r else ""
 
     def _fill_list(self, entries, results):
         self.list.blockSignals(True)
         self.list.clear()
         for i, e in enumerate(entries):
-            it = QListWidgetItem(f"{e.title}\n{e.uploader or '—'}  •  {fmt_duration(e.duration)}")
+            it = QListWidgetItem()
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Checked)
             it.setData(Qt.ItemDataRole.UserRole, i)
             it.setSizeHint(QSize(100, 72))
             self.list.addItem(it)
             self.thumbs.load(e.thumb_url, lambda pm, it=it: it.setIcon(QIcon(scaled(pm, 112, 63))))
         self.list.blockSignals(False)
-        self.select_all.setChecked(True)
-        self._list_changed()
+        self.list_note.setText("<br>".join(self.notes))
+        self.list_note.setVisible(bool(self.notes))
+        self._apply_history()
         self.preview.setCurrentIndex(2)
+
+    def _apply_history(self):
+        """Label already downloaded items and (if enabled) leave them unchecked."""
+        if not self.entries:
+            return
+        if self.single:
+            text = self.src_lbl.text().split("<br><b>Already downloaded</b>")[0]
+            self.src_lbl.setText(text + self._history_text(self.entries[0]))
+            return
+        if self.list.count() != len(self.entries):
+            return
+        kind = self._kind()
+        self.list.blockSignals(True)
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            e = self.entries[it.data(Qt.ItemDataRole.UserRole)]
+            r = self.archive.get(e.key, kind)
+            mark = f"  •  ✓ downloaded {r['date']}" if r else ""
+            it.setText(f"{e.title}\n{e.uploader or '—'}  •  {fmt_duration(e.duration)}{mark}")
+            skip = bool(r) and self.settings.skip_downloaded
+            it.setCheckState(Qt.CheckState.Unchecked if skip else Qt.CheckState.Checked)
+        self.list.blockSignals(False)
+        self._list_changed()
 
     def _toggle_all(self, checked: bool):
         self.list.blockSignals(True)
@@ -438,7 +483,10 @@ class MainWindow(QMainWindow):
 
     def _list_changed(self, *_):
         n = sum(self.list.item(i).checkState() == Qt.CheckState.Checked for i in range(self.list.count()))
-        self.list_info.setText(f"{n} of {self.list.count()} selected")
+        kind = self._kind()
+        done = 0 if self.single else sum(1 for e in self.entries if self.archive.has(e.key, kind))
+        self.list_info.setText(f"{n} of {self.list.count()} selected"
+                               + (f"  ·  {done} already downloaded" if done else ""))
         self.select_all.blockSignals(True)
         self.select_all.setChecked(n == self.list.count())
         self.select_all.blockSignals(False)
@@ -463,10 +511,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, f"Cannot use the output folder:\n{e}")
             return
         kind, fmt, quality = self._kind(), self.fmt_combo.currentData(), self.q_combo.currentData()
+        if self.single and self.archive.has(sel[0].key, kind):
+            r = self.archive.get(sel[0].key, kind)
+            again = QMessageBox.question(self, APP_NAME, f"This was already downloaded on {r['date']}.\n"
+                                         f"{r.get('path', '')}\n\nDownload it again?")
+            if again != QMessageBox.StandardButton.Yes:
+                return
         template = self._template()
         if self.settings.ask_naming:
             sample_info = sel[0].info or {"title": sel[0].title, "channel": sel[0].uploader, "id": sel[0].id}
-            sample = tagger.detect_meta(sample_info, self.settings.auto_detect_artist).as_dict()
+            sample = tagger.apply_overrides(tagger.detect_meta(sample_info, self.settings.auto_detect_artist),
+                                            sel[0].meta).as_dict()
             dlg = NamingDialog(template, sample, fmt, True, self)
             if dlg.exec() != NamingDialog.DialogCode.Accepted:
                 return
@@ -503,6 +558,8 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText(f"Finished: {ok} completed, {err} failed — see Queue (Retry).")
         else:
             self.status_lbl.setText("Finished.")
+        self.settings_page._refresh_history()
+        self._apply_history()
         if ok:
             self.done_lbl.setText("Download completed" if not err else f"Download completed ({ok} ok, {err} failed)")
             self.done_box.show()
@@ -522,8 +579,8 @@ class MainWindow(QMainWindow):
         if urls and text != self.url_edit.toPlainText().strip():
             self._last_clip = text
             self._clip_urls = urls
-            self.banner_label.setText("YouTube URL detected – Analyze?" if len(urls) == 1
-                                      else f"{len(urls)} YouTube URLs detected – Analyze?")
+            self.banner_label.setText("Link detected – Analyze?" if len(urls) == 1
+                                      else f"{len(urls)} links detected – Analyze?")
             self.banner.show()
 
     def _banner_analyze(self):
@@ -541,7 +598,8 @@ class MainWindow(QMainWindow):
         text = m.text() or "\n".join(u.toString() for u in m.urls())
         urls = ytdlp.extract_urls(text)
         if not urls:
-            self._show_error(AppError("INVALID_URL", "Invalid YouTube URL", "That is not a YouTube link."))
+            self._show_error(AppError("INVALID_URL", "Invalid link",
+                                      "That is not a YouTube, SoundCloud or Spotify link."))
             return
         cur = self.url_edit.toPlainText().strip()
         self.url_edit.setPlainText((cur + "\n" if cur else "") + "\n".join(urls))

@@ -12,7 +12,7 @@ LIGHT = dict(bg="#f3f4f8", panel="#ffffff", card="#ffffff", border="#d6dae5", te
              ok="#1fae73", input="#ffffff", err_bg="rgba(217,58,76,0.10)")
 
 QSS = Template("""
-QWidget { background:$bg; color:$text; font-family:"Segoe UI","Inter",sans-serif; font-size:10pt; }
+QWidget { background:$bg; color:$text; font-family:"Segoe UI",".AppleSystemUIFont","Helvetica Neue","Inter","Ubuntu","Noto Sans",sans-serif; font-size:10pt; }
 QLabel { background:transparent; }
 QLabel#muted { color:$muted; }
 QLabel#h1 { font-size:18pt; font-weight:700; }

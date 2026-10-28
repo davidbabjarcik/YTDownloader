@@ -5,6 +5,7 @@ from enum import Enum
 
 class JobState(str, Enum):
     WAITING = "Waiting"
+    SEARCHING = "Searching on YouTube"
     DOWNLOADING = "Downloading"
     CONVERTING = "Converting"
     EMBEDDING = "Embedding metadata"
@@ -19,7 +20,7 @@ class JobState(str, Enum):
 
 @dataclass
 class Entry:
-    """One downloadable video (a single video or a playlist item)."""
+    """One downloadable item (a single video/track or a playlist item)."""
     id: str
     url: str
     title: str
@@ -27,10 +28,30 @@ class Entry:
     duration: int | None = None
     thumbnail: str = ""
     info: dict | None = None            # full yt-dlp info (single videos only)
+    source: str = "youtube"             # youtube | soundcloud | spotify
+    meta: dict | None = None            # known tags that win over detection (Spotify, SoundCloud sets)
+    cover_url: str = ""                 # square cover art (Spotify)
+
+    @property
+    def is_youtube_id(self) -> bool:
+        return self.source == "youtube" and len(self.id) == 11
 
     @property
     def thumb_url(self) -> str:
-        return f"https://i.ytimg.com/vi/{self.id}/mqdefault.jpg"
+        if self.is_youtube_id:
+            return f"https://i.ytimg.com/vi/{self.id}/mqdefault.jpg"
+        return self.thumbnail or self.cover_url
+
+    @property
+    def big_thumb_url(self) -> str:
+        if self.is_youtube_id:
+            return f"https://i.ytimg.com/vi/{self.id}/hqdefault.jpg"
+        return self.cover_url or self.thumbnail
+
+    @property
+    def key(self) -> str:
+        """Identity in the download history, e.g. 'spotify:4cOdK2wGLETKBW3PvgPWqT'."""
+        return f"{self.source}:{self.id}"
 
 
 @dataclass
@@ -42,6 +63,7 @@ class AnalyzeResult:
     heights: list[int] = field(default_factory=list)
     audio_abr: float | None = None
     audio_codec: str = ""
+    note: str = ""                      # shown above the list (e.g. Spotify 100-track limit)
 
 
 @dataclass

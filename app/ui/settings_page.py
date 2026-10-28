@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dataclasses
+import os
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox,
@@ -10,7 +11,8 @@ from .. import deps, naming
 from .tasks import run_task
 
 
-def _path_row(edit: QLineEdit, pick_dir=False, filt="Executables (*.exe);;All files (*)"):
+def _path_row(edit: QLineEdit, pick_dir=False,
+              filt="Executables (*.exe);;All files (*)" if os.name == "nt" else "All files (*)"):
     box = QWidget()
     row = QHBoxLayout(box)
     row.setContentsMargins(0, 0, 0, 0)
@@ -31,10 +33,11 @@ class SettingsPage(QScrollArea):
     saved = Signal(object)
     install_requested = Signal()
 
-    def __init__(self, settings, tools):
+    def __init__(self, settings, tools, archive=None):
         super().__init__()
         self.setWidgetResizable(True)
         self.s = settings
+        self.archive = archive
         body = QWidget()
         self.setWidget(body)
         lay = QVBoxLayout(body)
@@ -60,12 +63,23 @@ class SettingsPage(QScrollArea):
         self.tpl = QLineEdit(settings.naming_template)
         self.tpl.setToolTip("Variables: " + " ".join("{%s}" % v for v in naming.VARIABLES))
         self.ask = QCheckBox("Ask for the file name pattern before each download")
+        self.skip = QCheckBox("Leave already downloaded items unchecked (download history)")
+        self.hist = QLabel()
+        self.hist.setObjectName("muted")
+        clear = QPushButton("Clear history")
+        clear.clicked.connect(self._clear_history)
+        hrow = QHBoxLayout()
+        hrow.addWidget(self.hist, 1)
+        hrow.addWidget(clear)
         f.addRow("Default audio format", self.afmt)
         f.addRow("Default MP3 quality", self.aq)
         f.addRow("Default video quality", self.vq)
         f.addRow("Naming template", self.tpl)
         f.addRow("", self.ask)
+        f.addRow("", self.skip)
+        f.addRow("Download history", hrow)
         lay.addWidget(g)
+        self._refresh_history()
 
         # Metadata
         g = QGroupBox("Metadata")
@@ -86,20 +100,20 @@ class SettingsPage(QScrollArea):
         self.theme = QComboBox()
         for n, val in (("Dark mode", "dark"), ("Light mode", "light"), ("System theme", "system")):
             self.theme.addItem(n, val)
-        self.clip = QCheckBox("Offer to analyze YouTube URLs copied to the clipboard")
+        self.clip = QCheckBox("Offer to analyze links copied to the clipboard")
         f.addRow("Theme", self.theme)
         f.addRow("", self.clip)
         lay.addWidget(g)
 
         # Organization & tags
-        g = QGroupBox("Organization & tags")
+        g = QGroupBox("Organization && tags")
         f = QFormLayout(g)
         self.sort = QLineEdit(settings.sort_template)
         self.sort.setPlaceholderText("empty = no folders, e.g. {genre}/{artist}")
         self.sort.setToolTip("Default folder structure inside the output folder. Variables: "
                              "{genre} {artist} {album} {year}; use / for nested folders.")
         self.unk = QLineEdit(settings.unknown_genre)
-        self.gonline = QCheckBox("Look up the genre online (MusicBrainz) when YouTube does not provide it")
+        self.gonline = QCheckBox("Look up the genre online (MusicBrainz) when the source does not provide it")
         self.wgenre = QCheckBox("Also write the genre into the tag")
         self.wcomment = QCheckBox("Write a comment into every tag:")
         self.comment = QLineEdit(settings.tag_comment)
@@ -109,6 +123,23 @@ class SettingsPage(QScrollArea):
         f.addRow("", self.wgenre)
         f.addRow("", self.wcomment)
         f.addRow("Comment text", self.comment)
+        lay.addWidget(g)
+
+        # Spotify
+        g = QGroupBox("Spotify")
+        f = QFormLayout(g)
+        hint = QLabel("Optional. Without keys, Spotify playlists show max. 100 tracks. For whole playlists, "
+                      "create a free app at <a href='https://developer.spotify.com/dashboard'>"
+                      "developer.spotify.com</a> and paste its Client ID and Client Secret here.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        hint.setOpenExternalLinks(True)
+        self.sp_id = QLineEdit(settings.spotify_client_id)
+        self.sp_secret = QLineEdit(settings.spotify_client_secret)
+        self.sp_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        f.addRow(hint)
+        f.addRow("Client ID", self.sp_id)
+        f.addRow("Client Secret", self.sp_secret)
         lay.addWidget(g)
 
         # Advanced
@@ -159,6 +190,9 @@ class SettingsPage(QScrollArea):
             combo.setCurrentIndex(max(0, combo.findData(val)))
         self.tpl.setText(s.naming_template)
         self.ask.setChecked(s.ask_naming)
+        self.skip.setChecked(s.skip_downloaded)
+        self.sp_id.setText(s.spotify_client_id)
+        self.sp_secret.setText(s.spotify_client_secret)
         self.embed.setChecked(s.embed_thumbnail)
         self.id3.setChecked(s.write_id3)
         self.sep.setChecked(s.save_thumbnail_separately)
@@ -180,7 +214,9 @@ class SettingsPage(QScrollArea):
             audio_format=self.afmt.currentData(), audio_quality=self.aq.currentData(),
             video_quality=self.vq.currentData(),
             naming_template=self.tpl.text().strip() or "{artist} - {title}",
-            ask_naming=self.ask.isChecked(), embed_thumbnail=self.embed.isChecked(),
+            ask_naming=self.ask.isChecked(), skip_downloaded=self.skip.isChecked(),
+            spotify_client_id=self.sp_id.text().strip(), spotify_client_secret=self.sp_secret.text().strip(),
+            embed_thumbnail=self.embed.isChecked(),
             write_id3=self.id3.isChecked(), save_thumbnail_separately=self.sep.isChecked(),
             auto_detect_artist=self.auto.isChecked(), crop_cover_square=self.crop.isChecked(),
             cap_bitrate_to_source=self.cap.isChecked(), theme=self.theme.currentData(),
@@ -190,6 +226,18 @@ class SettingsPage(QScrollArea):
             unknown_genre=self.unk.text().strip() or "Unsorted", genre_online=self.gonline.isChecked(),
             write_genre_tag=self.wgenre.isChecked(), write_comment=self.wcomment.isChecked(),
             tag_comment=self.comment.text().strip())
+
+    def _refresh_history(self):
+        n = len(self.archive) if self.archive is not None else 0
+        self.hist.setText(f"{n} item(s) remembered" if n else "empty")
+
+    def _clear_history(self):
+        if self.archive is None or not len(self.archive):
+            return
+        if QMessageBox.question(self, "Download history",
+                                "Forget all downloaded items? Files on disk are not touched.")                 == QMessageBox.StandardButton.Yes:
+            self.archive.clear()
+            self._refresh_history()
 
     def _save(self):
         self.s = self.collect()

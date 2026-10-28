@@ -4,10 +4,13 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import sources
+from .deps import tool_cmd
 from .errors import AppError, classify
 from .models import AnalyzeResult, Entry
 
@@ -18,20 +21,9 @@ PROGRESS_TEMPLATE = ("download:[PROG]%(progress.status)s|%(progress.downloaded_b
                      "%(progress.speed)s|%(progress.eta)s")
 STAGE_PREFIXES = ("[ExtractAudio]", "[Merger]", "[VideoConvertor]", "[VideoRemuxer]",
                   "[Fixup", "[ffmpeg]")
-YT_RE = re.compile(r"(?:https?://)?(?:www\.|m\.|music\.)?"
-                   r"(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/[^\s<>\"']+", re.I)
 STD_BITRATES = (128, 160, 192, 224, 256, 320)
-
-
-def extract_urls(text: str) -> list[str]:
-    urls: list[str] = []
-    for m in YT_RE.finditer(text or ""):
-        u = m.group(0).rstrip(".,;)")
-        if not u.lower().startswith("http"):
-            u = "https://" + u
-        if u not in urls:
-            urls.append(u)
-    return urls
+POSIX = os.name != "nt"
+extract_urls = sources.extract_urls
 
 
 def _custom_args(settings) -> list[str]:
@@ -47,7 +39,7 @@ def _base(tools, settings, need_ffmpeg: bool) -> list[str]:
     if not tools.ytdlp:
         raise AppError("YTDLP_MISSING", "yt-dlp not found",
                        "Open Settings → Advanced and install yt-dlp.")
-    cmd = [str(tools.ytdlp), "--ignore-config", "--encoding", "utf-8", "--no-colors",
+    cmd = tool_cmd(tools.ytdlp) + ["--ignore-config", "--encoding", "utf-8", "--no-colors",
            "--no-warnings"]
     if need_ffmpeg:
         if not (tools.ffmpeg and tools.ffprobe):
@@ -75,6 +67,16 @@ def fetch_info(url: str, tools, settings) -> dict:
     return json.loads(p.stdout)
 
 
+def search(query: str, n: int, tools, settings) -> list[dict]:
+    """Flat search results (id, title, duration, channel) for 'ytsearchN:…' or a search URL."""
+    cmd = _base(tools, settings, False) + _custom_args(settings) + [
+        "-J", "--flat-playlist", "--playlist-end", str(n), query]
+    p = _capture(cmd, timeout=90)
+    if p.returncode != 0 or not p.stdout.strip():
+        raise classify(p.stderr)
+    return [e for e in json.loads(p.stdout).get("entries") or [] if e and e.get("id")]
+
+
 def audio_summary(info: dict) -> tuple[float | None, str]:
     best = None
     for f in info.get("formats") or []:
@@ -96,19 +98,41 @@ def _clean_channel(s: str) -> str:
     return re.sub(r"\s*-\s*Topic$", "", s or "").strip()
 
 
-def _entry(d: dict) -> Entry:
-    vid = d.get("id") or ""
-    if re.fullmatch(r"[\w-]{11}", vid):
+def _slug_title(url: str) -> str:
+    """'https://soundcloud.com/artist/my-track-1' -> 'My track 1' (flat SoundCloud lists have no titles)."""
+    m = re.search(r"soundcloud\.com/[^/]+/([^/?#]+)", url or "")
+    if not m or m.group(1).isdigit():
+        return ""
+    t = m.group(1).replace("-", " ").strip()
+    return t[:1].upper() + t[1:]
+
+
+def _entry(d: dict, source: str = "youtube") -> Entry:
+    vid = str(d.get("id") or "")
+    extractor = d.get("ie_key") or d.get("extractor_key")
+    if extractor:
+        source = sources.from_extractor(extractor)
+    if source == "youtube" and re.fullmatch(r"[\w-]{11}", vid):
         url = f"https://www.youtube.com/watch?v={vid}"
     else:
         url = d.get("webpage_url") or d.get("url") or ""
-    return Entry(id=vid, url=url, title=d.get("title") or vid,
+    thumb = d.get("thumbnail") or ""
+    if not thumb and d.get("thumbnails"):
+        thumb = (d["thumbnails"][-1] or {}).get("url") or ""
+    meta = None
+    if d.get("album"):
+        meta = {"album": d.get("album") or "", "album_artist": d.get("album_artist") or ""}
+    return Entry(id=vid, url=url, title=d.get("title") or _slug_title(url) or vid,
                  uploader=_clean_channel(d.get("channel") or d.get("uploader") or ""),
                  duration=int(d["duration"]) if d.get("duration") else None,
-                 thumbnail=d.get("thumbnail") or "")
+                 thumbnail=thumb, source=source, meta=meta)
 
 
 def analyze_url(url: str, tools, settings) -> AnalyzeResult:
+    source = sources.source_of(url)
+    if source == "spotify":
+        from . import spotify
+        return spotify.analyze(url, settings)
     cmd = _base(tools, settings, False) + _custom_args(settings) + ["-J", "--flat-playlist", url]
     p = _capture(cmd)
     if p.returncode != 0 or not p.stdout.strip():
@@ -121,11 +145,11 @@ def analyze_url(url: str, tools, settings) -> AnalyzeResult:
                 continue
             if (e.get("title") or "").startswith(("[Private video]", "[Deleted video]")):
                 continue
-            entries.append(_entry(e))
+            entries.append(_entry(e, source))
         if not entries:
-            raise AppError("UNAVAILABLE", "Video unavailable", "The playlist has no playable items.")
+            raise AppError("UNAVAILABLE", "Nothing to download", "The playlist has no playable items.")
         return AnalyzeResult(url, data.get("title") or "Playlist", True, entries)
-    entry = _entry(data)
+    entry = _entry(data, source)
     entry.info = data
     abr, codec = audio_summary(data)
     return AnalyzeResult(url, entry.title, False, [entry], video_heights(data), abr, codec)
@@ -153,7 +177,7 @@ def effective_bitrate(selected: int, source_abr: float | None, cap: bool) -> int
     return selected
 
 
-def build_download_cmd(tools, settings, spec, tmpdir: Path, source_abr) -> list[str]:
+def build_download_cmd(tools, settings, spec, tmpdir: Path, source_abr, url: str = "") -> list[str]:
     cmd = _base(tools, settings, True) + [
         "--no-playlist", "--newline", "--no-mtime",
         "--progress-template", PROGRESS_TEMPLATE,
@@ -177,7 +201,7 @@ def build_download_cmd(tools, settings, spec, tmpdir: Path, source_abr) -> list[
             sel = f"bv*[height<={h}]+ba/b[height<={h}]"
         cmd += ["-f", sel, "-S", "res,ext:mp4:m4a", "--merge-output-format", "mp4"]
     cmd += _custom_args(settings)
-    cmd.append(spec.entry.url)
+    cmd.append(url or spec.entry.url)
     return cmd
 
 
@@ -209,8 +233,8 @@ def kill_tree(proc: subprocess.Popen) -> None:
         if os.name == "nt":
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                            capture_output=True, creationflags=CNW)
-        else:
-            proc.kill()
+        else:   # yt-dlp runs in its own process group: kill it together with ffmpeg
+            os.killpg(proc.pid, signal.SIGKILL)
     except Exception:  # noqa: BLE001
         pass
 
@@ -230,7 +254,8 @@ class ProcessRunner:
         try:
             self.proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=CNW)
+                text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=CNW,
+                start_new_session=POSIX)
         except OSError as e:
             raise AppError("YTDLP_MISSING", "yt-dlp could not be started", str(e))
         if self.cancelled:
@@ -239,4 +264,5 @@ class ProcessRunner:
             line = line.rstrip("\r\n")
             lines.append(line)
             on_line(line)
+        self.proc.stdout.close()
         return self.proc.wait(), lines

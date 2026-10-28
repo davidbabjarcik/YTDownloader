@@ -1,13 +1,14 @@
-"""File name templates: {title} {artist} {album} {year} {id}."""
+"""File name templates: {title} {artist} {album} {year} {genre} {track} {id}."""
 from __future__ import annotations
 import re
 from pathlib import Path
 
-VARIABLES = ("title", "artist", "album", "year", "genre", "id")
+VARIABLES = ("title", "artist", "album", "year", "genre", "track", "id")
 PRESETS = [
     ("Artist - Title", "{artist} - {title}"),
     ("Title", "{title}"),
     ("Artist - Title (Year)", "{artist} - {title} ({year})"),
+    ("Track. Title (albums)", "{track}. {title}"),
     ("Artist - Title [YouTube]", "{artist} - {title} [YouTube]"),
 ]
 SORT_PRESETS = [
