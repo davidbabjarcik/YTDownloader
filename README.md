@@ -9,6 +9,9 @@ z **YouTube, SoundCloudu a Spotify**, jednotlivé skladby aj celé playlisty a a
 
 ## Stiahnutie hotovej appky
 
+**Najjednoduchšie: [davidbabjarcik.github.io/YTDownloader](https://davidbabjarcik.github.io/YTDownloader/)**,
+stránka ponúkne verziu pre tvoj systém z posledného vydania ([Releases](https://github.com/davidbabjarcik/YTDownloader/releases)).
+
 Každý push do `main` spustí GitHub Actions (záložka **Actions** → posledný beh → **Artifacts**):
 
 | Systém | Súbor | Spustenie |
