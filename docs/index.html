@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT Downloader</title>
+<meta name="description" content="Hudba a video z YouTube, Spotify a SoundCloudu ako MP3, M4A, FLAC alebo MP4 s tagmi a coverom. Pre Windows, macOS a Linux.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg:#f3f4f8; --panel:#ffffff; --card:#ffffff; --border:#d6dae5; --text:#1c2030;
+    --muted:#697186; --accent:#6a4cff; --accent2:#7f64ff; --ok:#1fae73;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#14161b; --panel:#1b1e25; --card:#242833; --border:#2f3441; --text:#e8eaf0;
+      --muted:#8d95a8; --accent:#7c5cff; --accent2:#9277ff; --ok:#3ddc97;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.55;
+    font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue","Ubuntu","Noto Sans",sans-serif; }
+  .wrap { max-width:880px; margin:0 auto; padding:0 16px; }
+  header { padding:56px 0 28px; }
+  .brand { display:flex; align-items:center; gap:14px; }
+  .brand img { width:52px; height:52px; }
+  h1 { font-size:clamp(28px,6vw,40px); margin:0; letter-spacing:-0.02em; }
+  .lead { font-size:18px; color:var(--muted); margin:16px 0 0; max-width:640px; }
+  h2 { font-size:22px; margin:44px 0 14px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; }
+  .downloads { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+  .dl { display:flex; flex-direction:column; gap:6px; }
+  .dl.mine { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .dl h3 { margin:0; font-size:18px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .tag { font-size:12px; font-weight:600; color:var(--accent2); }
+  .dl p { margin:0; color:var(--muted); font-size:14px; flex:1; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 18px;
+    border-radius:10px; background:var(--accent); color:#fff; font-weight:700; text-decoration:none; margin-top:10px; }
+  .btn:hover { background:var(--accent2); }
+  .btn.secondary { background:transparent; color:var(--text); border:1px solid var(--border); font-weight:600; }
+  .btn.secondary:hover { border-color:var(--accent); background:transparent; }
+  .size { font-size:13px; color:var(--muted); }
+  .version { color:var(--muted); font-size:14px; margin-top:12px; }
+  .features { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+  .features h3 { margin:0 0 6px; font-size:16px; }
+  .features p { margin:0; color:var(--muted); font-size:15px; }
+  ol, ul { padding-left:22px; }
+  li { margin:6px 0; }
+  code { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:1px 6px; font-size:0.9em;
+    overflow-wrap:anywhere; }
+  .note { border-left:3px solid var(--accent); padding:4px 0 4px 14px; color:var(--muted); }
+  footer { margin:56px 0 40px; color:var(--muted); font-size:14px; border-top:1px solid var(--border); padding-top:20px; }
+  a { color:var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <img src="icon.svg" alt="">
+      <h1>YT Downloader</h1>
+    </div>
+    <p class="lead">Hudba a video z <strong>YouTube</strong>, <strong>Spotify</strong> a <strong>SoundCloudu</strong>:
+      jednotlivé skladby aj celé playlisty a albumy, ako MP3, M4A, FLAC alebo MP4, s názvom, interpretom, albumom a coverom.
+      Pre Windows, macOS a Linux, zadarmo.</p>
+  </header>
+
+  <h2 id="download">Stiahnuť</h2>
+  <div class="downloads">
+    <div class="card dl" data-os="windows">
+      <h3>Windows <span class="tag" hidden>tvoj systém</span></h3>
+      <p>Windows 10 a 11 (64-bit). Rozbaľ ZIP a spusti <code>YTDownloader.exe</code>. yt-dlp aj FFmpeg sú pribalené.</p>
+      <span class="size"></span>
+      <a class="btn" href="https://github.com/davidbabjarcik/YTDownloader/releases/latest">Stiahnuť pre Windows</a>
+    </div>
+    <div class="card dl" data-os="macos">
+      <h3>macOS <span class="tag" hidden>tvoj systém</span></h3>
+      <p>Mac s Apple Silicon (M1 a novší). Rozbaľ ZIP a presuň <code>YTDownloader.app</code> do Aplikácií.</p>
+      <span class="size"></span>
+      <a class="btn" href="https://github.com/davidbabjarcik/YTDownloader/releases/latest">Stiahnuť pre macOS</a>
+    </div>
+    <div class="card dl" data-os="linux">
+      <h3>Linux <span class="tag" hidden>tvoj systém</span></h3>
+      <p>64-bit (x64). Rozbaľ <code>tar.gz</code> a spusti <code>YTDownloader/YTDownloader</code>.</p>
+      <span class="size"></span>
+      <a class="btn" href="https://github.com/davidbabjarcik/YTDownloader/releases/latest">Stiahnuť pre Linux</a>
+    </div>
+  </div>
+  <p class="version" id="version">Všetky verzie sú na stránke
+    <a href="https://github.com/davidbabjarcik/YTDownloader/releases">Releases</a>.</p>
+
+  <h2>Čo vie</h2>
+  <div class="features">
+    <div class="card"><h3>YouTube</h3><p>Videá aj playlisty. Audio v najvyššej dostupnej kvalite alebo video MP4.</p></div>
+    <div class="card"><h3>Spotify</h3><p>Skladby, albumy, playlisty. Zoznam, tagy a cover zo Spotify, zvuk z rovnakej skladby na YouTube Music.</p></div>
+    <div class="card"><h3>SoundCloud</h3><p>Skladby aj sety, s číslom skladby a názvom albumu.</p></div>
+    <div class="card"><h3>Tagy a cover</h3><p>Interpret, album, rok, žáner a obrázok priamo v súbore. Vlastné názvy súborov a triedenie do priečinkov.</p></div>
+    <div class="card"><h3>História</h3><p>Pamätá si, čo už máš. Pri playliste stiahne len nové skladby.</p></div>
+    <div class="card"><h3>Z mobilu</h3><p>Zapni prístup v appke, naskenuj QR kód a pridávaj skladby z mobilu v tej istej Wi-Fi. Sťahuje počítač.</p></div>
+  </div>
+
+  <h2>Prvé spustenie</h2>
+  <div class="card">
+    <ul>
+      <li><strong>Windows:</strong> ak sa zobrazí SmartScreen, klikni <em>Ďalšie informácie → Spustiť aj tak</em>.</li>
+      <li><strong>macOS:</strong> appka nie je podpísaná u Apple. Prvýkrát ju otvor cez pravý klik → <em>Otvoriť</em>.
+        Ak macOS hlási, že je poškodená, spusti v Termináli
+        <code>xattr -dr com.apple.quarantine /Applications/YTDownloader.app</code></li>
+      <li><strong>macOS a Linux:</strong> pri prvom štarte si appka sama stiahne yt-dlp a FFmpeg (asi 100 MB, len raz).
+        Ak ich už máš nainštalované (napr. <code>brew install yt-dlp ffmpeg</code>), použije tie.</li>
+    </ul>
+  </div>
+
+  <h2>Ako na to</h2>
+  <div class="card">
+    <ol>
+      <li>Skopíruj odkaz na skladbu, video, album alebo playlist a vlož ho do appky.</li>
+      <li>Klikni <strong>Analyze</strong> a vyber, ktoré skladby chceš.</li>
+      <li>Zvoľ formát (MP3, M4A, FLAC, MP4) a kvalitu a klikni <strong>Download</strong>.</li>
+    </ol>
+    <p class="note">Celé Spotify playlisty nad 100 skladieb: na developer.spotify.com si zadarmo vytvor appku
+      a jej Client ID a Client Secret vlož do Settings → Spotify.</p>
+  </div>
+
+  <footer>
+    Sťahuj len obsah, ktorý smieš (vlastný, licencovaný, Creative Commons…). Sťahovanie chráneného obsahu môže
+    porušovať podmienky služieb alebo autorské právo. Postavené na
+    <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> a <a href="https://ffmpeg.org">FFmpeg</a>.
+    · <a href="https://github.com/davidbabjarcik/YTDownloader">Zdrojový kód</a>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var mine = /Win/i.test(plat + ua) ? "windows" : /Mac/i.test(plat) && !/iPhone|iPad/i.test(ua) ? "macos"
+           : /Linux/i.test(plat) && !/Android/i.test(ua) ? "linux" : "";
+  if (mine) {
+    var card = document.querySelector('.dl[data-os="' + mine + '"]');
+    card.classList.add("mine");
+    card.querySelector(".tag").hidden = false;
+    card.parentNode.insertBefore(card, card.parentNode.firstChild);
+  }
+  fetch("https://api.github.com/repos/davidbabjarcik/YTDownloader/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (rel) {
+      if (!rel || !rel.assets) return;
+      rel.assets.forEach(function (a) {
+        var os = /windows/i.test(a.name) ? "windows" : /macos/i.test(a.name) ? "macos" : /linux/i.test(a.name) ? "linux" : "";
+        var card = os && document.querySelector('.dl[data-os="' + os + '"]');
+        if (!card) return;
+        card.querySelector(".btn").href = a.browser_download_url;
+        card.querySelector(".size").textContent = a.name + " · " + Math.round(a.size / 1048576) + " MB";
+      });
+      document.getElementById("version").innerHTML = "Verzia " + rel.tag_name.replace(/^v/, "") +
+        ' · <a href="' + rel.html_url + '">poznámky k vydaniu</a> · <a href="https://github.com/davidbabjarcik/YTDownloader/releases">všetky verzie</a>';
+    })
+    .catch(function () {});
+})();
+</script>
+</body>
+</html>
